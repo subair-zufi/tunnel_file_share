@@ -230,4 +230,46 @@ mod tests {
         assert_eq!(&body[..], b"hello world");
         assert_eq!(st.registry.lock().unwrap().get("tok2").unwrap().download_count, 1);
     }
+
+    #[tokio::test]
+    async fn protected_download_rejects_wrong_password() {
+        let (_keep, path) = temp_file(b"secret");
+        let hash = crate::password::hash_password("letmein");
+        let share = Share::new("tok3".into(), path, "s.txt".into(), 6, Some(hash));
+        let app = build_router(state_with_share(share));
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/d/tok3/download")
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from("password=wrong"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn protected_download_accepts_correct_password() {
+        let (_keep, path) = temp_file(b"secret");
+        let hash = crate::password::hash_password("letmein");
+        let share = Share::new("tok4".into(), path, "s.txt".into(), 6, Some(hash));
+        let app = build_router(state_with_share(share));
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/d/tok4/download")
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from("password=letmein"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(&body[..], b"secret");
+    }
 }
